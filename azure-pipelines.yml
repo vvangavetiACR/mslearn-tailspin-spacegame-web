@@ -1,73 +1,171 @@
-trigger:
-- '*'
+#add a pipeline trigger to run your pipeline
+
+#In this example, pipeline will be triggered when there is code changes commited to master branch of current repository
+
+#More complex trigger condition can be found at https://docs.microsoft.com/en-us/azure/devops/pipelines/process/pipeline-triggers?view=azure-devops&tabs=yaml
+
+trigger :
+
+    - '*'
 
  
 
-pool:
-  vmImage: 'ubuntu-18.04'
-  demands:
-    - npm
+#checkout multiple repositories in the pipeline
+
+resources :
+
+  repositories :
+
+  #1) this repository contains ADOCS share templates https://github.com/ACRCode/ADOCS-templates
+
+  #Required
+
+  - repository : azureSharedTemplates
+
+    type : github
+
+    endpoint : MyProject
+
+    name : ILiuACR/shared-azure-pipeline-templates
+
+    branch : master
 
  
 
-variables:
-  buildConfiguration: 'Release'
-  wwwrootDir: 'Tailspin.SpaceGame.Web/wwwroot'
-  dotnetSdkVersion: '3.1.300' 
+#define variables
 
-steps:
-- task: UseDotNet@2
-  displayName: 'Use .NET Core SDK $(dotnetSdkVersion)'
-  inputs:
-    version: '$(dotnetSdkVersion)'
+variables :
 
- 
+  buildConfiguration : 'Release'
 
-- task: Npm@1
-  displayName: 'Run npm install'
-  inputs:
-    verbose: false
+  wwwrootDir : 'Tailspin.SpaceGame.Web/wwwroot'
+
+  dotnetSdkVersion : '3.1.300'
 
  
 
-- script: './node_modules/.bin/node-sass $(wwwrootDir) --output $(wwwrootDir)'
-  displayName: 'Compile Sass assets' 
+#ADOCS requires pipeline yaml file extending from shared template created by ADOCS team
 
-- task: gulp@1
-  displayName: 'Run gulp tasks'
+# You should provide parameters defined in shared template (shared-template.yml) as show below
+
+extends :
+
+  template : hands-on-training/shared-template.yml@azureSharedTemplates
+
+  # Below are parameters needed for shared template
+
+  parameters :
+
+    #parameters to set build version
+
+    buildVersionMajor : 1
+
+    buildVersionMinor : 0
+
+    #Required
+
+    #Provide tasks which will be executed for build process, below is an example of tasks for .net Core project
+
+    buildSteps :
+
+    - task : UseDotNet@2
+
+      displayName : 'Use .NET Core SDK $(dotnetSdkVersion)'
+
+      inputs :
+
+        version : '$(dotnetSdkVersion)'
+
+    - task : Npm@1
+
+      displayName : 'Run npm install'
+
+      inputs :
+
+        verbose : false
+
+    - script : './node_modules/.bin/node-sass $(wwwrootDir) --output $(wwwrootDir)'
+
+      displayName : 'Compile Sass assets'
+
+    - task : gulp@1
+
+      displayName : 'Run gulp tasks'
+
+    - script : 'echo "$(Build.DefinitionName), $(Build.BuildId), $(Build.BuildNumber)" > buildinfo.txt'
+
+      displayName : 'Write build info'
+
+      workingDirectory : $(wwwrootDir)
+
+    - task : DotNetCoreCLI@2
+
+      displayName : 'Restore project dependencies'
+
+      inputs :
+
+        command : 'restore'
+
+        projects : '**/*.csproj'
+
+    - task : DotNetCoreCLI@2
+
+      displayName : 'Build the project - $(buildConfiguration)'
+
+      inputs :
+
+        command : 'build'
+
+        arguments : '--no-restore --configuration $(buildConfiguration)'
+
+        projects : '**/*.csproj'
+
+    - task : DotNetCoreCLI@2
+
+      displayName : 'Publish the project - $(buildConfiguration)'
+
+      inputs :
+
+        command : 'publish'
+
+        projects : '**/*.csproj'
+
+        publishWebProjects : false
+
+        arguments : '--no-build --configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/$(buildConfiguration)'
+
+        zipAfterPublish : true
+
+    - task : PublishPipelineArtifact@1
+
+      inputs :
+
+        targetPath : '$(Build.ArtifactStagingDirectory)/$(buildConfiguration)'
+
+        artifact : 'buildArtifacts'
+
+        publishLocation : 'pipeline'
 
  
 
-- script: 'echo "$(Build.DefinitionName), $(Build.BuildId), $(Build.BuildNumber)" > buildinfo.txt'
-  displayName: 'Write build info'
-  workingDirectory: $(wwwrootDir)
+    #Choose if the project needs to use self hosted agents instead of Microsoft hosted agent
 
- 
+    #For example, if project needs to restore nuget packages which are hosted in ACR internal package server, then needs to use self hosted agents
 
-- task: DotNetCoreCLI@2
-  displayName: 'Restore project dependencies'
-  inputs:
-    command: 'restore'
-    projects: '**/*.csproj' 
+    useSelfHostedAgents : false
 
-- task: DotNetCoreCLI@2
-  displayName: 'Build the project - $(buildConfiguration)'
-  inputs:
-    command: 'build'
-    arguments: '--no-restore --configuration $(buildConfiguration)'
-    projects: '**/*.csproj' 
+    #If useSelfHostedAgents = false:
 
-- task: DotNetCoreCLI@2
-  displayName: 'Publish the project - $(buildConfiguration)'
-  inputs:
-    command: 'publish'
-    projects: '**/*.csproj'
-    publishWebProjects: false
-    arguments: '--no-build --configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/$(buildConfiguration)'
-    zipAfterPublish: true 
+    #Provide your prefered Microsoft hosted agent pool image, with which you build tasks will be executed. Default is 'ubuntu-latest'
 
-- task: PublishPipelineArtifact@1
-  inputs:
-    targetPath: '$(Build.ArtifactStagingDirectory)/$(buildConfiguration)'
-    artifact: 'buildArtifacts'
-    publishLocation: 'pipeline'
+    #For more image options, check https://docs.microsoft.com/en-us/azure/devops/pipelines/agents/hosted?view=azure-devops&tabs=yaml#use-a-microsoft-hosted-agent
+
+    buildPoolImage : 'ubuntu-18.04'
+
+    #If useSelfHostedAgents = true:
+
+    #Provide the self hosted agent pool name which is shared with your project, you can find the agent pool in project settings
+
+    #If you are not sure about how to find it or the agent pool is not shared with your project, please contact ADOCS team for help
+
+    selfHostedAgentPoolForBuild : 'Local Agents'
